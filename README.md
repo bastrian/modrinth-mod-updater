@@ -39,11 +39,20 @@ This indicates the mod version ID, and whether it is required or optional on the
 
 Run the script with the following command:
 
-• Bash `python updater.py`
+• Bash 
+```shell 
+python updater.py
+```
 
-• Linux Terminal default python `python3 updater.py`
+• Linux Terminal default python 
+```shell
+python3 updater.py
+```
 
-• Windows `python .\updater.py`
+• Windows 
+```shell
+python .\updater.py
+```
 
 Check the logs directory for an update log named with the timestamp of when the script was run.
 
