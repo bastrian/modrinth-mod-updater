@@ -31,7 +31,7 @@ pip install requests
 VersionID ServerENV ClientENV
 
 For example:
-abcdefgh required optional
+1.0.1 required optional
 
 This indicates the mod version ID, and whether it is required or optional on the server or client.
 
@@ -40,7 +40,7 @@ This indicates the mod version ID, and whether it is required or optional on the
 Run the script with the following command:
 
 ```shell
-python modrinth_mod_updater.py
+python updater.py
 ```
 
 Check the logs directory for an update log named with the timestamp of when the script was run.
