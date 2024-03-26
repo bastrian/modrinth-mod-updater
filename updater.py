@@ -63,28 +63,34 @@ def get_version_info_by_id(version_id):
 def download_file(url, directory, expected_size=None):
     filename = url.split('/')[-1]
     file_path = os.path.join(directory, filename)
-    # Check if the file already exists and has the expected size
-    if os.path.exists(file_path):
-        if expected_size is None or os.path.getsize(file_path) == expected_size:
-            print(f"File already exists with the expected size: {file_path}")
+    
+    try:
+        # Check if the directory exists, if not create it
+        os.makedirs(directory, exist_ok=True)
+
+        # Check if the file already exists and has the expected size
+        if os.path.exists(file_path):
+            if expected_size is None or os.path.getsize(file_path) == expected_size:
+                print(f"File already exists with the expected size: {file_path}")
+                return file_path
+            else:
+                print(f"File size mismatch, re-downloading: {file_path}")
+
+        # Proceed to download the file
+        response = requests.get(url, stream=True)
+        if response.status_code == 200:
+            with open(file_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            print(f"Downloaded file to {file_path}")
             return file_path
         else:
-            print(f"File size mismatch, re-downloading: {file_path}")
-
-    # Proceed to download the file
-    response = requests.get(url, stream=True)
-    if response.status_code == 200:
-        os.makedirs(directory, exist_ok=True)
-        with open(file_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        print(f"Downloaded file to {file_path}")
-        return file_path
-    else:
-        print(f"Failed to download file from {url}")
+            print(f"Failed to download file from {url}")
+            return None
+    except Exception as e:
+        print(f"An error occurred while downloading the file: {e}")
         return None
 
-# Function to check and update the mod versions, now with logging
 # Function to check and update the mod versions, now with downloading check and logging
 def check_and_update_mod_versions(json_data, db_cursor, log_file_path):
     updates_log = []
@@ -102,7 +108,7 @@ def check_and_update_mod_versions(json_data, db_cursor, log_file_path):
 
                         # Determine the directory to download the mod to
                         directory = 'mods'
-                        if file_entry['env']['server'] == 'required':
+                        if 'env' in file_entry and file_entry['env'].get('server') == 'required':
                             directory = 'server'
 
                         # Download the file if not present or if the file size is different
