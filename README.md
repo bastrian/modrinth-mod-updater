@@ -8,6 +8,7 @@ A Python script designed to automatically check for mod updates on Modrinth usin
 - **Selective Downloading**: Downloads new or updated mods while avoiding unnecessary downloads.
 - **Environment Awareness**: Sorts mods into `server` or `mods` directories based on environment requirements.
 - **Logging**: Maintains detailed logs of updates in a `logs` directory with timestamps.
+- **Version Checking**: Checks for what version of Minecraft you are using and what mod loader from the json file
 
 ## Getting Started
 
