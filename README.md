@@ -1,4 +1,4 @@
-# Modrinth Mod Updater
+# Modrinth Modpack Manager
 
 A Python-based tool for managing and updating your Minecraft modpack by automatically checking for mod updates via the Modrinth API. The tool updates your local `modrinth.index.json` file, downloads new or updated mods into designated folders, and offers several interactive options for building and configuring your modpack.
 
@@ -40,9 +40,8 @@ A Python-based tool for managing and updating your Minecraft modpack by automati
 1. **Clone the Repository:**
 
    ```bash
-   git clone https://github.com/bastrian/modrinth-mod-updater.git
-   cd modrinth-mod-updater
-   ```
+   git clone https://github.com/yourusername/modrinth-modpack-manager.git
+   cd modrinth-modpack-manager
 
 2. **Set Up the Environment:**
 
@@ -57,7 +56,6 @@ A Python-based tool for managing and updating your Minecraft modpack by automati
     ```bash
     chmod +x setup.sh
     ./setup.sh
-    ```
 
 3. **Configuration:**
     Place your modrinth.index.json in the project root, or let the tool guide you through the initial setup.
@@ -69,12 +67,10 @@ Run the main script with:
 ***Windows:***
     ```bash
     python main.py
-    ```
 
 ***Linux/Mac:***
     ```bash
     python3 main.py
-    ```
 
 **Menu Options**
 
