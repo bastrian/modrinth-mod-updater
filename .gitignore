@@ -46,7 +46,7 @@ logs/
 # Config (user-specific)
 updater_config.json
 modrinth.index.json
-
+AGENTS.md
 # OS
 .DS_Store
 Thumbs.db

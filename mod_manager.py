@@ -42,22 +42,14 @@ def download_and_calculate_hashes(url: str) -> tuple[str | None, str | None, int
         logger.error(f"Invalid URL: {url}")
         return None, None, 0
     
-    try:
-        response = get_with_retry(url)
-    except (APIError, RateLimitError) as e:
-        logger.error(f"Failed to download URL {url}: {e}")
-        return None, None, 0
-    except Exception as e:
-        logger.error(f"Unexpected error downloading URL {url}: {e}")
-        return None, None, 0
+    import requests
     
     sha1_hash = hashlib.sha1()
     sha512_hash = hashlib.sha512()
     total_bytes = 0
     
-    import requests
     try:
-        response = requests.get(url, stream=True, timeout=30)
+        response = requests.get(url, stream=True, timeout=60)
         response.raise_for_status()
         for chunk in response.iter_content(chunk_size=8192):
             total_bytes += len(chunk)
@@ -389,6 +381,54 @@ def check_and_update_mod_versions(json_data: dict[str, Any], log_file_path: str,
     return updates_log
 
 
+VALID_MOD_STATUSES = ["required", "optional", "unsupported"]
+
+
+def get_mod_status_input(side: str, current: str = "") -> str:
+    """
+    Prompt user for mod status (required, optional, unsupported).
+    Returns the status string.
+    """
+    prompt = f"Server" if side == "server" else "Client"
+    if current:
+        prompt += f" (current: {current})"
+    prompt += " [R/O/U]: "
+    
+    while True:
+        value = input(prompt).strip().lower()
+        if not value:
+            return current if current else "optional"
+        if value in ("r", "required"):
+            return "required"
+        if value in ("o", "optional"):
+            return "optional"
+        if value in ("u", "unsupported"):
+            return "unsupported"
+        print("Invalid option. Use R (required), O (optional), or U (unsupported).")
+
+
+def get_mod_status_input_local(side: str, current: str = "") -> str:
+    """
+    Fallback function for get_mod_status_input when Rich is not available.
+    """
+    prompt = f"{side.title()} status"
+    if current:
+        prompt += f" (current: {current})"
+    prompt += " [R/O/U]: "
+    
+    while True:
+        value = input(prompt).strip().lower()
+        if not value:
+            return current if current else "optional"
+        if value in ("r", "required"):
+            return "required"
+        if value in ("o", "optional"):
+            return "optional"
+        if value in ("u", "unsupported"):
+            return "unsupported"
+        print("Invalid option. Use R (required), O (optional), or U (unsupported).")
+
+
 def add_mod_interactive(json_data: dict[str, Any], mods_directory: str, use_async: bool = False) -> None:
     """
     Adds a new mod to the modpack by prompting the user for information.
@@ -398,10 +438,8 @@ def add_mod_interactive(json_data: dict[str, Any], mods_directory: str, use_asyn
         logger.error("No version ID provided.")
         return
     
-    server_req = input("Is this mod required for the server? (yes/no): ").strip().lower()
-    client_req = input("Is this mod required for the client? (yes/no): ").strip().lower()
-    server_env = "required" if server_req.startswith("y") else "optional"
-    client_env = "required" if client_req.startswith("y") else "optional"
+    server_env = get_mod_status_input("server")
+    client_env = get_mod_status_input("client")
     
     version_info = get_version_info_by_id(version_id)
     if not version_info:
@@ -432,17 +470,153 @@ def add_mod_interactive(json_data: dict[str, Any], mods_directory: str, use_asyn
 
 def list_mods(json_data: dict[str, Any]) -> None:
     """
-    Lists all mods in the modpack.
+    Lists all mods in the modpack with edit/delete functionality.
     """
     if not json_data.get("files"):
         print("No mods found in the modpack.")
         return
     
-    print("Mods in the modpack:")
+    print("\nMods in the modpack:")
     for idx, file_entry in enumerate(json_data["files"], start=1):
         project_id = extract_project_id(file_entry.get("downloads", [])) or "Unknown"
         filename = file_entry.get("path", "Unknown file")
-        print(f"{idx}. Project ID: {project_id}, File: {filename}")
+        env = file_entry.get("env", {})
+        server = env.get("server", "unknown")
+        client = env.get("client", "unknown")
+        print(f"{idx}. {filename[:40]:<40} | S: {server:<9} | C: {client}")
+    
+    print("\n[Enter number] Edit mod status")
+    print("[D] Delete a mod")
+    print("[Q] Quit to menu")
+    
+    choice = input("Select: ").strip().lower()
+    
+    if choice == "q" or choice == "":
+        return
+    elif choice == "d":
+        delete_mod(json_data)
+    else:
+        try:
+            idx = int(choice)
+            if 1 <= idx <= len(json_data["files"]):
+                edit_mod_env(json_data, idx - 1)
+            else:
+                print("Invalid number.")
+        except ValueError:
+            print("Invalid option.")
+
+
+def edit_mod_env(json_data: dict[str, Any], mod_index: int) -> None:
+    """
+    Edit the server/client environment status for a mod.
+    """
+    try:
+        from menu import get_mod_status_input, print_success, console
+        use_rich = True
+    except ImportError:
+        use_rich = False
+        get_mod_status_input = None
+        print_success = None
+        console = None
+    
+    files = json_data.get("files", [])
+    if mod_index < 0 or mod_index >= len(files):
+        if use_rich and print_success:
+            print_success("Invalid mod selection.")
+        else:
+            print("Invalid mod selection.")
+        return
+    
+    file_entry = files[mod_index]
+    filename = file_entry.get("path", "Unknown")
+    env = file_entry.get("env", {})
+    
+    if use_rich and console:
+        console.print(f"\n[cyan]Editing:[/cyan] {filename}")
+    else:
+        print(f"\nEditing: {filename}")
+    
+    current_server = env.get("server", "optional")
+    current_client = env.get("client", "optional")
+    
+    if use_rich and get_mod_status_input:
+        new_server = get_mod_status_input("server", current_server)
+        new_client = get_mod_status_input("client", current_client)
+    else:
+        new_server = get_mod_status_input_local("server", current_server)
+        new_client = get_mod_status_input_local("client", current_client)
+    
+    file_entry["env"] = {
+        "server": new_server,
+        "client": new_client,
+    }
+    
+    if use_rich and print_success:
+        print_success(f"Mod updated! Server: {new_server}, Client: {new_client}")
+    else:
+        print(f"Mod updated! Server: {new_server}, Client: {new_client}")
+
+
+def delete_mod(json_data: dict[str, Any]) -> None:
+    """
+    Delete a mod from the modpack by number.
+    """
+    try:
+        from menu import get_input, confirm, print_success, print_error
+        use_rich = True
+    except ImportError:
+        use_rich = False
+    
+    if not json_data.get("files"):
+        if use_rich:
+            print_error("No mods to delete.")
+        else:
+            print("No mods to delete.")
+        return
+    
+    try:
+        choice = get_input("Enter mod number to delete") if use_rich else input("Enter mod number to delete: ").strip()
+        idx = int(choice) - 1
+        
+        if idx < 0 or idx >= len(json_data["files"]):
+            if use_rich:
+                print_error("Invalid number.")
+            else:
+                print("Invalid number.")
+            return
+        
+        file_entry = json_data["files"][idx]
+        filename = file_entry.get("path", "Unknown")
+        
+        if use_rich:
+            should_delete = confirm(f"Delete '{filename}'?", default=False)
+        else:
+            confirm = input(f"Delete '{filename}'? (yes/no): ").strip().lower()
+            should_delete = confirm.startswith("y")
+        
+        if should_delete:
+            deleted = json_data["files"].pop(idx)
+            if use_rich:
+                print_success(f"Deleted: {deleted.get('path', 'Unknown')}")
+            else:
+                print(f"Deleted: {deleted.get('path', 'Unknown')}")
+        else:
+            if use_rich:
+                print_info = None
+                try:
+                    from menu import print_info as pi
+                    print_info = pi
+                except ImportError:
+                    pass
+                if print_info:
+                    print_info("Cancelled.")
+            else:
+                print("Cancelled.")
+    except ValueError:
+        if use_rich:
+            print_error("Invalid number.")
+        else:
+            print("Invalid number.")
 
 
 def remove_mod(json_data: dict[str, Any]) -> None:
@@ -623,3 +797,223 @@ def build_modpack(config: UpdaterConfig, json_data: dict[str, Any], db_cursor: A
     
     if dry_run:
         logger.info("[DRY RUN] Build simulation complete.")
+
+
+def get_modpack_version_info(version_id: str) -> dict[str, Any] | None:
+    """
+    Retrieves version information for a specific modpack version from the Modrinth API.
+    """
+    api_url = f"{MODRINTH_API_BASE}/version/{version_id}"
+    
+    try:
+        data = get_with_retry(api_url)
+        if isinstance(data, dict):
+            return data
+        logger.error(f"Unexpected API response format for version {version_id}")
+    except (APIError, RateLimitError) as e:
+        logger.error(f"Failed to get version info for Version ID {version_id}: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error fetching version {version_id}: {e}")
+    
+    return None
+
+
+def get_project_info(project_id: str) -> dict[str, Any] | None:
+    """
+    Retrieves project information from the Modrinth API.
+    """
+    api_url = f"{MODRINTH_API_BASE}/project/{project_id}"
+    
+    try:
+        data = get_with_retry(api_url)
+        if isinstance(data, dict):
+            return data
+        logger.error(f"Unexpected API response format for project {project_id}")
+    except (APIError, RateLimitError) as e:
+        logger.error(f"Failed to get project info for {project_id}: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error fetching project {project_id}: {e}")
+    
+    return None
+
+
+def download_mrpack(url: str, destination: str, use_async: bool = False) -> str | None:
+    """
+    Downloads the .mrpack file from the given URL.
+    Returns the path to the downloaded file, or None on failure.
+    """
+    if not validate_modrinth_url(url):
+        logger.error(f"Invalid Modrinth URL: {url}")
+        return None
+    
+    logger.info(f"Downloading modpack from {url}")
+    file_path, success = download_file_wrapper(url, destination, dry_run=False, use_async=use_async)
+    
+    if success and file_path:
+        logger.info(f"Modpack downloaded to {file_path}")
+        return file_path
+    
+    logger.error("Failed to download modpack")
+    return None
+
+
+def extract_mrpack(mrpack_path: str, extract_to: str) -> dict[str, Any] | None:
+    """
+    Extracts a .mrpack file (which is a ZIP) to the specified directory.
+    Returns the parsed modrinth.index.json, or None on failure.
+    """
+    if not os.path.exists(mrpack_path):
+        logger.error(f"Modpack file not found: {mrpack_path}")
+        return None
+    
+    try:
+        os.makedirs(extract_to, exist_ok=True)
+        
+        with zipfile.ZipFile(mrpack_path, "r") as zipf:
+            file_list = zipf.namelist()
+            
+            if "modrinth.index.json" not in file_list:
+                logger.error("Invalid modpack: missing modrinth.index.json")
+                return None
+            
+            zipf.extractall(extract_to)
+            logger.info(f"Extracted modpack to {extract_to}")
+            
+            index_path = os.path.join(extract_to, "modrinth.index.json")
+            with open(index_path, "r") as f:
+                return json.load(f)
+    
+    except zipfile.BadZipFile:
+        logger.error(f"Invalid ZIP file: {mrpack_path}")
+    except OSError as e:
+        logger.error(f"Error extracting modpack: {e}")
+    except json.JSONDecodeError as e:
+        logger.error(f"Error parsing modrinth.index.json: {e}")
+    
+    return None
+
+
+def download_mod_from_modpack(file_entry: dict[str, Any], mods_dir: str, use_async: bool) -> bool:
+    """
+    Downloads a single mod from the modpack file entry.
+    Returns True if successful, False otherwise.
+    """
+    downloads = file_entry.get("downloads", [])
+    if not downloads:
+        logger.warning("No downloads available for mod")
+        return False
+    
+    url = downloads[0]
+    if not validate_url(url):
+        logger.error(f"Invalid URL for mod: {url}")
+        return False
+    
+    filename = file_entry.get("path", "").split("/")[-1]
+    if not filename:
+        filename = url.split("/")[-1]
+    
+    expected_size = file_entry.get("fileSize")
+    
+    file_path, success = download_file_wrapper(url, mods_dir, expected_size=expected_size, use_async=use_async)
+    
+    if success and file_path:
+        logger.info(f"Downloaded mod: {filename}")
+        return True
+    
+    logger.error(f"Failed to download mod: {filename}")
+    return False
+
+
+def import_modpack(version_id: str, config: UpdaterConfig, download_mods: bool = True) -> dict[str, Any] | None:
+    """
+    Imports a modpack from Modrinth by version ID.
+    
+    Args:
+        version_id: The Modrinth version ID
+        config: UpdaterConfig instance
+        download_mods: If True, downloads all mod files. If False, only extracts metadata.
+    
+    Returns:
+        The parsed modpack data, or None on failure.
+    """
+    logger.info(f"Importing modpack version: {version_id}")
+    
+    print(f"Fetching modpack information from Modrinth...")
+    
+    version_info = get_modpack_version_info(version_id)
+    if not version_info:
+        logger.error("Failed to fetch modpack version info")
+        return None
+    
+    files = version_info.get("files", [])
+    if not files:
+        logger.error("No files found in modpack version")
+        return None
+    
+    primary_file = files[0]
+    mrpack_url = primary_file.get("url")
+    
+    if not mrpack_url:
+        logger.error("No download URL found in modpack version")
+        return None
+    
+    temp_dir = os.path.join(config.download_directory, "temp_import")
+    mrpack_path = download_mrpack(mrpack_url, temp_dir, use_async=config.async_downloads)
+    
+    if not mrpack_path:
+        logger.error("Failed to download modpack")
+        return None
+    
+    print("Extracting modpack...")
+    modpack_data = extract_mrpack(mrpack_path, config.download_directory)
+    
+    if not modpack_data:
+        logger.error("Failed to extract modpack")
+        return None
+    
+    try:
+        os.remove(mrpack_path)
+        os.rmdir(temp_dir)
+    except OSError:
+        pass
+    
+    mods_dir = config.mods_dir
+    os.makedirs(mods_dir, exist_ok=True)
+    
+    if download_mods:
+        print(f"Downloading mods ({len(modpack_data.get('files', []))} files)...")
+        
+        for idx, file_entry in enumerate(modpack_data.get("files", []), 1):
+            print(f"  [{idx}/{len(modpack_data['files'])}] Downloading mods...")
+            download_mod_from_modpack(file_entry, mods_dir, config.async_downloads)
+            
+            project_id = extract_project_id(file_entry.get("downloads", []))
+            if project_id:
+                version_number = file_entry.get("version_number", "unknown")
+                sha1 = file_entry.get("hashes", {}).get("sha1")
+                sha512 = file_entry.get("hashes", {}).get("sha512")
+                file_size = file_entry.get("fileSize", 0)
+                
+                game_version, mod_loader, _ = get_game_version_and_mod_loader(modpack_data)
+                
+                save_mod_version(
+                    project_id=project_id,
+                    version_number=version_number,
+                    file_url=file_entry.get("downloads", [""])[0],
+                    file_size=file_size,
+                    sha1=sha1 or "",
+                    sha512=sha512 or "",
+                    mod_loader=mod_loader or "",
+                )
+    
+    print(f"Modpack imported successfully!")
+    print(f"  Name: {modpack_data.get('name', 'Unknown')}")
+    print(f"  Version: {modpack_data.get('versionId', 'Unknown')}")
+    print(f"  Game: {modpack_data.get('game', 'minecraft')}")
+    print(f"  Files: {len(modpack_data.get('files', []))}")
+    
+    deps = modpack_data.get("dependencies", {})
+    if deps:
+        print(f"  Dependencies: {', '.join(f'{k}: {v}' for k, v in deps.items())}")
+    
+    return modpack_data
